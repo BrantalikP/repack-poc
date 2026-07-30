@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "POC",
-    "slug": "POC",
+    "name": "repack-poc",
+    "slug": "repack-poc",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -10,6 +10,7 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.strv.repackpoc",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",

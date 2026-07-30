@@ -1,0 +1,84 @@
+name: repack-poc
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build-or-repack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      - run: npm ci
+
+      # 1) Native fingerprint of the project. Does NOT depend on JS source files.
+      - name: Generate fingerprint
+        id: fp
+        run: |
+          HASH=$(npx --yes @expo/fingerprint fingerprint:generate --platform android | jq -r .hash)
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+          echo "Fingerprint: $HASH"
+
+      # 2) The cache key IS the fingerprint, so cache-hit answers
+      #    "does a native-compatible binary already exist?".
+      - name: Look up APK for this fingerprint
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: artifacts/app.apk
+          key: android-apk-${{ steps.fp.outputs.hash }}
+
+      # 3a) Fingerprint miss -> full native build.
+      - name: Full native build (fingerprint miss)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          npx expo prebuild --platform android --clean
+          ./android/gradlew -p android assembleRelease --no-daemon
+          mkdir -p artifacts
+          cp android/app/build/outputs/apk/release/app-release.apk artifacts/app.apk
+
+      # 3b) Fingerprint hit -> repack only. This is what the POC verifies.
+      - name: Repack (fingerprint hit)
+        if: steps.cache.outputs.cache-hit == 'true'
+        run: |
+          npx --yes @expo/repack-app@latest \
+            --platform android \
+            --source-app artifacts/app.apk \
+            --output artifacts/repacked.apk \
+            --verbose
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Expo repack POC"
+            echo ""
+            echo "- Fingerprint: \`${{ steps.fp.outputs.hash }}\`"
+            if [ "${{ steps.cache.outputs.cache-hit }}" = "true" ]; then
+              echo "- Path taken: **repack** (native build skipped)"
+            else
+              echo "- Path taken: **full native build** (no APK cached for this fingerprint)"
+            fi
+            echo ""
+            echo "Artifacts:"
+            ls -lh artifacts 2>/dev/null || echo "  (none)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: apk-${{ steps.fp.outputs.hash }}
+          path: artifacts/*.apk
+          if-no-files-found: warn
