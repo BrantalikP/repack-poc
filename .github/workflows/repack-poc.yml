@@ -75,10 +75,12 @@ jobs:
           MARKER=$(sed -n "s/^const JS_MARKER = '\(.*\)';$/\1/p" App.tsx)
           echo "Testing $APK, expecting marker: $MARKER"
 
-          # Bake the expected marker into the flow, then zip the suite.
-          mkdir -p build/flows
-          sed "s/__MARKER__/$MARKER/" .maestro/smoke.yaml > build/flows/smoke.yaml
+          # Bake the expected marker into every flow, then zip the whole suite.
+          rm -rf build/flows && mkdir -p build/flows
+          cp .maestro/*.yaml build/flows/
+          sed -i "s/__MARKER__/$MARKER/g" build/flows/*.yaml
           (cd build/flows && zip -qr ../flows.zip .)
+          echo "Flows in suite: $(ls build/flows | tr '\n' ' ')"
 
           BS=https://api-cloud.browserstack.com/app-automate/maestro/v2
           APP_URL=$(curl -sS -u "$BS_USER:$BS_KEY" -X POST "$BS/app" \

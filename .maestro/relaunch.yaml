@@ -1,0 +1,10 @@
+# Second flow, added to prove that growing the test suite does not touch the
+# native fingerprint: tests ship with the suite upload, not with the binary.
+appId: com.strv.repackpoc
+---
+- launchApp:
+    clearState: true
+- assertVisible: 'JS build marker: __MARKER__'
+- stopApp
+- launchApp
+- assertVisible: 'JS build marker: __MARKER__'
