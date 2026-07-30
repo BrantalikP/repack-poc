@@ -1,0 +1,8 @@
+# Third flow, added in the same commit as a JS text change. Neither touches the
+# native fingerprint, so both reach a real device without a native rebuild.
+# Deliberately marker-agnostic: it checks the shape of the text, not the version.
+appId: com.strv.repackpoc
+---
+- launchApp:
+    clearState: true
+- assertVisible: 'JS build marker: v\d+'
