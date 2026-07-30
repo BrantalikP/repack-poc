@@ -34,9 +34,12 @@ jobs:
 
       # 2) The cache key IS the fingerprint, so cache-hit answers
       #    "does a native-compatible binary already exist?".
+      #    restore/save are split on purpose: actions/cache saves in a post step
+      #    and skips it when the job fails, so a failing test would discard a
+      #    19-minute build. Saving explicitly right after the build avoids that.
       - name: Look up APK for this fingerprint
         id: cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: artifacts/app.apk
           key: android-apk-${{ steps.fp.outputs.hash }}
@@ -49,6 +52,13 @@ jobs:
           ./android/gradlew -p android assembleRelease --no-daemon
           mkdir -p artifacts
           cp android/app/build/outputs/apk/release/app-release.apk artifacts/app.apk
+
+      - name: Cache the APK for this fingerprint
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: artifacts/app.apk
+          key: android-apk-${{ steps.fp.outputs.hash }}
 
       # 3b) Fingerprint hit -> repack only. This is what the POC verifies.
       - name: Repack (fingerprint hit)
@@ -82,7 +92,13 @@ jobs:
         if: env.BS_USER != ''
         run: |
           set -euo pipefail
-          APK=$(ls artifacts/repacked.apk artifacts/app.apk 2>/dev/null | head -1)
+          # Not `ls a b | head -1`: ls exits 2 when a file is missing, and with
+          # pipefail that kills the step on the full-build path.
+          if [ -f artifacts/repacked.apk ]; then
+            APK=artifacts/repacked.apk
+          else
+            APK=artifacts/app.apk
+          fi
           MARKER=$(sed -n "s/^const JS_MARKER = '\(.*\)';$/\1/p" App.tsx)
           echo "Testing $APK, expecting marker: $MARKER"
 
