@@ -60,10 +60,21 @@ jobs:
             --output artifacts/repacked.apk \
             --verbose
 
-      # 4) Run the smoke flow on a real device. The flow asserts the exact JS
-      #    marker, so a passing build is proof the repacked bundle is the new one.
+      # 4) Publish the binary before testing starts: a cancelled or timed-out
+      #    test phase must not throw away a 19-minute native build, and a failing
+      #    flow is easier to debug with the APK already downloadable.
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: apk-${{ steps.fp.outputs.hash }}
+          path: artifacts/*.apk
+          if-no-files-found: warn
+
+      # 5) Run the flows on a real device. They assert the exact JS marker, so a
+      #    passing build is proof the repacked bundle is the new one.
       #    Skipped entirely when BrowserStack secrets are not configured.
-      - name: Run Maestro flow on BrowserStack
+      - name: Run Maestro flows on BrowserStack
         id: bs
         env:
           BS_USER: ${{ secrets.BROWSERSTACK_USERNAME }}
@@ -129,10 +140,3 @@ jobs:
             echo "Artifacts:"
             ls -lh artifacts 2>/dev/null || echo "  (none)"
           } >> "$GITHUB_STEP_SUMMARY"
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: apk-${{ steps.fp.outputs.hash }}
-          path: artifacts/*.apk
-          if-no-files-found: warn
