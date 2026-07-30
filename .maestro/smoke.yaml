@@ -1,0 +1,8 @@
+# __MARKER__ is substituted in CI with the JS_MARKER value from App.tsx.
+# Asserting the exact marker is what proves a repack actually swapped the JS
+# bundle: a stale bundle would still show the previous version and fail here.
+appId: com.strv.repackpoc
+---
+- launchApp:
+    clearState: true
+- assertVisible: 'JS build marker: __MARKER__'

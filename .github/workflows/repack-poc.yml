@@ -60,6 +60,52 @@ jobs:
             --output artifacts/repacked.apk \
             --verbose
 
+      # 4) Run the smoke flow on a real device. The flow asserts the exact JS
+      #    marker, so a passing build is proof the repacked bundle is the new one.
+      #    Skipped entirely when BrowserStack secrets are not configured.
+      - name: Run Maestro flow on BrowserStack
+        id: bs
+        env:
+          BS_USER: ${{ secrets.BROWSERSTACK_USERNAME }}
+          BS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+        if: env.BS_USER != ''
+        run: |
+          set -euo pipefail
+          APK=$(ls artifacts/repacked.apk artifacts/app.apk 2>/dev/null | head -1)
+          MARKER=$(sed -n "s/^const JS_MARKER = '\(.*\)';$/\1/p" App.tsx)
+          echo "Testing $APK, expecting marker: $MARKER"
+
+          # Bake the expected marker into the flow, then zip the suite.
+          mkdir -p build/flows
+          sed "s/__MARKER__/$MARKER/" .maestro/smoke.yaml > build/flows/smoke.yaml
+          (cd build/flows && zip -qr ../flows.zip .)
+
+          BS=https://api-cloud.browserstack.com/app-automate/maestro/v2
+          APP_URL=$(curl -sS -u "$BS_USER:$BS_KEY" -X POST "$BS/app" \
+            -F "file=@$APK" -F "custom_id=repack-poc" | jq -r .app_url)
+          SUITE_URL=$(curl -sS -u "$BS_USER:$BS_KEY" -X POST "$BS/test-suite" \
+            -F "file=@build/flows.zip" -F "custom_id=repack-poc-flows" | jq -r .test_suite_url)
+          echo "app=$APP_URL suite=$SUITE_URL"
+
+          BUILD_ID=$(curl -sS -u "$BS_USER:$BS_KEY" -X POST "$BS/android/build" \
+            -H 'Content-Type: application/json' \
+            -d "$(jq -n --arg a "$APP_URL" --arg t "$SUITE_URL" \
+                  '{app:$a, testSuite:$t, project:"repack-poc",
+                    devices:["Google Pixel 7-13.0"]}')" | jq -r '.build_id // .buildId')
+          echo "build_id=$BUILD_ID" >> "$GITHUB_OUTPUT"
+
+          # Poll until the build leaves the queued/running states.
+          for _ in $(seq 1 60); do
+            STATUS=$(curl -sS -u "$BS_USER:$BS_KEY" "$BS/builds/$BUILD_ID" | jq -r .status)
+            echo "status=$STATUS"
+            case "$STATUS" in
+              queued|running) sleep 15 ;;
+              passed) exit 0 ;;
+              *) echo "BrowserStack build did not pass: $STATUS"; exit 1 ;;
+            esac
+          done
+          echo "Timed out waiting for BrowserStack build $BUILD_ID"; exit 1
+
       - name: Summary
         if: always()
         run: |
@@ -71,6 +117,11 @@ jobs:
               echo "- Path taken: **repack** (native build skipped)"
             else
               echo "- Path taken: **full native build** (no APK cached for this fingerprint)"
+            fi
+            if [ -n "${{ steps.bs.outputs.build_id }}" ]; then
+              echo "- BrowserStack Maestro build: \`${{ steps.bs.outputs.build_id }}\`"
+            else
+              echo "- BrowserStack: skipped (no secrets configured)"
             fi
             echo ""
             echo "Artifacts:"
