@@ -1,0 +1,8 @@
+# Added in the same commit as the text it asserts. No marker substitution: the
+# string is hardcoded, so this flow passes only if the JS on the device is the
+# JS from this commit -- and it reached the device without a native build.
+appId: com.strv.repackpoc
+---
+- launchApp:
+    clearState: true
+- assertVisible: 'REPACK FUNGUJEEEE'

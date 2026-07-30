@@ -8,6 +8,7 @@ export default function App() {
   return (
     <View style={styles.container}>
       <Text style={styles.marker}>JS build marker: {JS_MARKER}</Text>
+      <Text style={styles.shout}>REPACK FUNGUJEEEE</Text>
       <StatusBar style="auto" />
     </View>
   );
@@ -23,5 +24,10 @@ const styles = StyleSheet.create({
   marker: {
     fontSize: 28,
     fontWeight: 'bold',
+  },
+  shout: {
+    marginTop: 16,
+    fontSize: 22,
+    color: '#1b7f3b',
   },
 });
