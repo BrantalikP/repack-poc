@@ -102,12 +102,18 @@ jobs:
           MARKER=$(sed -n "s/^const JS_MARKER = '\(.*\)';$/\1/p" App.tsx)
           echo "Testing $APK, expecting marker: $MARKER"
 
-          # Bake the expected marker into every flow, then zip the whole suite.
-          rm -rf build/flows && mkdir -p build/flows
-          cp .maestro/*.yaml build/flows/
-          sed -i "s/__MARKER__/$MARKER/g" build/flows/*.yaml
-          (cd build/flows && zip -qr ../flows.zip .)
-          echo "Flows in suite: $(ls build/flows | tr '\n' ' ')"
+          # Bake the expected marker into every flow, then zip the suite.
+          # BrowserStack requires a single parent folder inside the zip; with the
+          # flows at the archive root it silently ran only one of them.
+          rm -rf build/suite && mkdir -p build/suite/flows
+          cp .maestro/*.yaml build/suite/flows/
+          sed -i "s/__MARKER__/$MARKER/g" build/suite/flows/*.yaml
+          (cd build/suite && zip -qr ../flows.zip flows)
+
+          # Without `execute`, only root-level flows of the parent folder run.
+          # List them explicitly so the request states what is expected to run.
+          EXECUTE=$(cd build/suite/flows && ls *.yaml | jq -R . | jq -sc .)
+          echo "Flows in suite: $EXECUTE"
 
           BS=https://api-cloud.browserstack.com/app-automate/maestro/v2
           APP_URL=$(curl -sS -u "$BS_USER:$BS_KEY" -X POST "$BS/app" \
@@ -118,22 +124,36 @@ jobs:
 
           BUILD_ID=$(curl -sS -u "$BS_USER:$BS_KEY" -X POST "$BS/android/build" \
             -H 'Content-Type: application/json' \
-            -d "$(jq -n --arg a "$APP_URL" --arg t "$SUITE_URL" \
-                  '{app:$a, testSuite:$t, project:"repack-poc",
+            -d "$(jq -n --arg a "$APP_URL" --arg t "$SUITE_URL" --argjson e "$EXECUTE" \
+                  '{app:$a, testSuite:$t, project:"repack-poc", execute:$e,
                     devices:["Google Pixel 7-13.0"]}')" | jq -r '.build_id // .buildId')
           echo "build_id=$BUILD_ID" >> "$GITHUB_OUTPUT"
 
           # Poll until the build leaves the queued/running states.
+          STATUS=unknown
           for _ in $(seq 1 60); do
             STATUS=$(curl -sS -u "$BS_USER:$BS_KEY" "$BS/builds/$BUILD_ID" | jq -r .status)
             echo "status=$STATUS"
             case "$STATUS" in
               queued|running) sleep 15 ;;
-              passed) exit 0 ;;
-              *) echo "BrowserStack build did not pass: $STATUS"; exit 1 ;;
+              *) break ;;
             esac
           done
-          echo "Timed out waiting for BrowserStack build $BUILD_ID"; exit 1
+          if [ "$STATUS" != passed ]; then
+            echo "BrowserStack build did not pass: $STATUS"
+            exit 1
+          fi
+
+          # A build reports "passed" even when it silently ran a subset of the
+          # suite, so assert that every flow actually executed.
+          EXPECTED=$(echo "$EXECUTE" | jq length)
+          RAN=$(curl -sS -u "$BS_USER:$BS_KEY" "$BS/builds/$BUILD_ID" \
+            | jq '[.devices[].sessions[].testcases.count] | add // 0')
+          echo "flows expected=$EXPECTED ran=$RAN"
+          if [ "$RAN" != "$EXPECTED" ]; then
+            echo "Only $RAN of $EXPECTED flows ran"
+            exit 1
+          fi
 
       - name: Summary
         if: always()
