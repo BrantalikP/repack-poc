@@ -2,7 +2,7 @@ import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, Text, View } from 'react-native';
 
 // Bump this marker (v1 -> v2 -> ...) to prove a repack actually swapped the JS bundle.
-const JS_MARKER = 'v1';
+const JS_MARKER = 'v2';
 
 export default function App() {
   return (
